@@ -4,16 +4,19 @@ const invoke = (command, args) => window.__TAURI__.core.invoke(command, args);
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 export class GamingMouseDevice extends EventTarget {
-  device = null;
-  reportId = 0;
-  pending = [];
-  queue = Promise.resolve();
-  trace = [];
-  native = !!window.__TAURI__?.core;
-  nativeConnected = false;
-  probing = false;
+  constructor() {
+    super();
+    this.device = null;
+    this.reportId = 0;
+    this.pending = [];
+    this.queue = Promise.resolve();
+    this.trace = [];
+    this.native = !!(window.__TAURI__ && window.__TAURI__.core);
+    this.nativeConnected = false;
+    this.probing = false;
+  }
 
-  get connected() { return this.native ? this.nativeConnected : !!this.device?.opened; }
+  get connected() { return this.native ? this.nativeConnected : !!(this.device && this.device.opened); }
 
   async probe() {
     if (!this.native || this.connected || this.probing) return;
@@ -43,16 +46,17 @@ export class GamingMouseDevice extends EventTarget {
     if (!navigator.hid) throw new Error('此 WebView2 無法使用 WebHID，請更新 WebView2 Runtime。');
     const devices = await navigator.hid.requestDevice({ filters: DEVICE_FILTERS });
     if (!devices.length) return false;
-    const chosen = devices.find(d => d.collections.some(c => c.usagePage === VENDOR_USAGE_PAGE && c.outputReports?.length)) || devices[0];
-    const collection = chosen.collections.find(c => c.usagePage === VENDOR_USAGE_PAGE && c.outputReports?.length) || chosen.collections.find(c => c.outputReports?.length);
+    const chosen = devices.find(d => d.collections.some(c => c.usagePage === VENDOR_USAGE_PAGE && c.outputReports && c.outputReports.length)) || devices[0];
+    const collection = chosen.collections.find(c => c.usagePage === VENDOR_USAGE_PAGE && c.outputReports && c.outputReports.length) || chosen.collections.find(c => c.outputReports && c.outputReports.length);
     if (!collection) throw new Error('裝置沒有可用的 Output Report。');
     await chosen.open();
     this.device = chosen;
-    this.reportId = collection.outputReports[0].reportId ?? 0;
+    this.reportId = collection.outputReports[0].reportId != null ? collection.outputReports[0].reportId : 0;
     chosen.addEventListener('inputreport', event => {
       const bytes = new Uint8Array(event.data.buffer, event.data.byteOffset, event.data.byteLength);
       this.trace.push({ time: new Date().toISOString(), direction: 'input', reportId: event.reportId, bytes: Array.from(bytes) });
-      this.pending.shift()?.(bytes);
+      const resolvePending = this.pending.shift();
+      if (resolvePending) resolvePending(bytes);
       this.dispatchEvent(new Event('trace'));
     });
     navigator.hid.addEventListener('disconnect', event => {
@@ -74,7 +78,7 @@ export class GamingMouseDevice extends EventTarget {
       this.dispatchEvent(new Event('change'));
       return;
     }
-    if (this.device?.opened) await this.device.close();
+    if (this.device && this.device.opened) await this.device.close();
     this.device = null;
     this.reportId = 0;
     while (this.pending.length) this.pending.shift()(null);

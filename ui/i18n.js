@@ -165,7 +165,7 @@ export function translate(text, language) {
     if (button) return `${translate(button[1], language)} 기능`;
     const color = /^(紅色|綠色|藍色|黃色|青色|紫色) · 固定色$/.exec(text);
     if (color) return `${translate(color[1], language)} · ${translate('固定色', language)}`;
-    return phrases[text]?.[1] || text;
+    return phrases[text] && phrases[text][1] || text;
   }
   const index = LANGUAGES.indexOf(language) - 1;
   if (index < 0) return text;

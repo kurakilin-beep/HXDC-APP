@@ -1,12 +1,13 @@
 import { GamingMouseDevice } from './device.js';
 import { DEFAULT_DPI, REPORT_RATES, STAGE_COLORS } from './protocol.js';
 import { LANGUAGES, systemLanguage, translate } from './i18n.js';
+import { cloneData, profileId, replaceChildren, readFileText, storage } from './compat.js';
 
 const $ = id => document.getElementById(id);
 const device = new GamingMouseDevice();
 const textSources = new WeakMap();
 const attributeSources = new WeakMap();
-const t = text => translate(text, $('languageSelect')?.value || 'zh-TW');
+const t = text => translate(text, ($('languageSelect') && $('languageSelect').value) || 'zh-TW');
 const STORAGE_KEY = 'hxd-gaming-mouse-profiles-v1';
 const MOUSE_BUTTONS = ['左鍵', '右鍵', '中鍵', '側鍵 1', '側鍵 2'];
 const STAGE_NAMES = ['紅色', '綠色', '藍色', '黃色', '青色', '紫色'];
@@ -31,15 +32,15 @@ function scheduleGaugeWrite() {
 }
 
 function defaultProfile(name = 'M1') {
-  return { id: crypto.randomUUID(), name, rate: 1000, stage: 0, dpi: [...DEFAULT_DPI], assignments: structuredClone(DEFAULT_ASSIGNMENTS), macros: {} };
+  return { id: profileId(), name, rate: 1000, stage: 0, dpi: [...DEFAULT_DPI], assignments: cloneData(DEFAULT_ASSIGNMENTS), macros: {} };
 }
 function validProfile(profile) {
   return profile && typeof profile.name === 'string' && Array.isArray(profile.dpi) && profile.dpi.length === 6 && Array.isArray(profile.assignments) && profile.assignments.length === 5;
 }
 function loadProfiles() {
   try {
-    const data = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    if (Array.isArray(data?.profiles) && data.profiles.some(validProfile)) {
+    const data = JSON.parse(storage.getItem(STORAGE_KEY));
+    if (data && Array.isArray(data.profiles) && data.profiles.some(validProfile)) {
       profiles = Array.from({ length: 5 }, (_, index) => {
         const profile = data.profiles[index];
         return validProfile(profile) ? { ...profile, name: `M${index + 1}` } : defaultProfile(`M${index + 1}`);
@@ -53,7 +54,7 @@ function loadProfiles() {
   activeId = profiles[0].id;
   persist();
 }
-function persist() { localStorage.setItem(STORAGE_KEY, JSON.stringify({ activeId, profiles })); }
+function persist() { storage.setItem(STORAGE_KEY, JSON.stringify({ activeId, profiles })); }
 function active() { return profiles.find(p => p.id === activeId) || profiles[0]; }
 function notify(message, error = false) {
   const el = $('toast');
@@ -78,7 +79,7 @@ function parseOption(value) {
   return OPTIONS.find(o => o.cat === cat && o.val === val);
 }
 function populateAssignmentSelect(select, current, index) {
-  select.replaceChildren();
+  replaceChildren(select);
   const addGroup = (name, items) => {
     const group = document.createElement('optgroup');
     group.label = name;
@@ -91,8 +92,8 @@ function populateAssignmentSelect(select, current, index) {
   addGroup('滑鼠', MOUSE_KEYS);
   addGroup('鍵盤', KEYBOARD);
   addGroup('多媒體', MEDIA_KEYS);
-  if (current?.kind === 'macro' && active().macros[index]) select.add(new Option(`巨集 (${active().macros[index].steps.length} 動作)`, 'macro'));
-  select.value = current?.kind === 'macro' ? 'macro' : optionValue(current || DEFAULT_ASSIGNMENTS[index]);
+  if (current && current.kind === 'macro' && active().macros[index]) select.add(new Option(`巨集 (${active().macros[index].steps.length} 動作)`, 'macro'));
+  select.value = current && current.kind === 'macro' ? 'macro' : optionValue(current || DEFAULT_ASSIGNMENTS[index]);
   select.addEventListener('change', () => {
     if (select.value === 'macro') return;
     const selected = parseOption(select.value);
@@ -114,9 +115,9 @@ function assignmentRow(index) {
   return row;
 }
 function renderAssignments() {
-  $('homeAssignmentLeft').replaceChildren(...[0, 3, 4].map(assignmentRow));
-  $('homeAssignmentRight').replaceChildren(...[1, 2].map(assignmentRow));
-  const editor = $('buttonEditor'); editor.replaceChildren();
+  replaceChildren($('homeAssignmentLeft'), ...[0, 3, 4].map(assignmentRow));
+  replaceChildren($('homeAssignmentRight'), ...[1, 2].map(assignmentRow));
+  const editor = $('buttonEditor'); replaceChildren(editor);
   for (let i = 0; i < 5; i++) {
     const row = document.createElement('div'); row.className = 'button-edit-row';
     const badge = document.createElement('span'); badge.className = 'badge'; badge.textContent = i + 1;
@@ -129,7 +130,7 @@ function renderAssignments() {
 }
 function renderProfiles() {
   const chips = $('profileChips');
-  chips.replaceChildren();
+  replaceChildren(chips);
   for (const profile of profiles) {
     const button = document.createElement('button');
     button.textContent = profile.name;
@@ -170,13 +171,13 @@ function renderGauges() {
   const profile = active();
   $('homeDpi').textContent = profile.dpi[profile.stage];
   $('homeRate').textContent = profile.rate;
-  $('homeDpiChips').replaceChildren();
+  replaceChildren($('homeDpiChips'));
   profile.dpi.forEach((value, index) => {
     const chip = document.createElement('button'); chip.className = `chip${index === profile.stage ? ' active' : ''}`; chip.textContent = value;
     chip.addEventListener('click', () => { profile.stage = index; persist(); renderGauges(); scheduleGaugeWrite(); });
     $('homeDpiChips').appendChild(chip);
   });
-  $('homeRateChips').replaceChildren();
+  replaceChildren($('homeRateChips'));
   REPORT_RATES.forEach(rate => {
     for (const [container, className, suffix] of [[$('homeRateChips'), 'chip', '']]) {
       const chip = document.createElement('button'); chip.className = `${className}${rate === profile.rate ? ' active' : ''}`; chip.textContent = rate + suffix;
@@ -192,7 +193,7 @@ function renderGauges() {
   applyLanguage();
 }
 function renderDpiEditor() {
-  const root = $('dpiEditor'); root.replaceChildren();
+  const root = $('dpiEditor'); replaceChildren(root);
   active().dpi.forEach((value, index) => {
     const box = document.createElement('div'); box.className = 'dpi-stage';
     const title = document.createElement('strong'); title.textContent = `STAGE ${index + 1}`;
@@ -209,7 +210,7 @@ function renderDpiEditor() {
   });
 }
 function renderMacro() {
-  const root = $('macroSteps'); root.replaceChildren();
+  const root = $('macroSteps'); replaceChildren(root);
   if (!editingSteps.length) { const empty = document.createElement('p'); empty.className = 'muted'; empty.textContent = '尚無動作。加入按下、放開或延遲。'; root.appendChild(empty); applyLanguage(); return; }
   editingSteps.forEach((step, index) => {
     const item = document.createElement('span'); item.className = 'macro-step';
@@ -245,14 +246,15 @@ function selectProfile(id) {
 function switchPage(page) {
   document.querySelectorAll('.page').forEach(node => node.classList.toggle('active', node.dataset.page === page));
   document.querySelectorAll('.nav-item').forEach(node => node.classList.toggle('active', node.dataset.page === page));
+  document.documentElement.classList.toggle('home-active', page === 'home');
 }
 const LIGHTING_DEMO_KEY = 'hxd-lighting-demo-v1';
 const LIGHTING_NAMES = { solid: '單色', breathing: '呼吸', cycle: '多彩循環', flow: '流光' };
 function initLightingDemo() {
   let saved = {};
-  try { saved = JSON.parse(localStorage.getItem(LIGHTING_DEMO_KEY)) || {}; } catch { /* Use demo defaults. */ }
+  try { saved = JSON.parse(storage.getItem(LIGHTING_DEMO_KEY)) || {}; } catch { /* Use demo defaults. */ }
   for (const picker of document.querySelectorAll('[data-lighting-color]')) {
-    const color = saved.colors?.[picker.dataset.lightingColor];
+    const color = saved.colors && saved.colors[picker.dataset.lightingColor];
     if (/^#[0-9a-f]{6}$/i.test(color || '')) picker.value = color;
   }
   const selected = document.querySelector(`input[name="lightingEffect"][value="${saved.effect}"]`);
@@ -265,7 +267,9 @@ function initLightingDemo() {
     preview.style.setProperty('--led-color', color);
     $('lightingPreviewName').textContent = t(LIGHTING_NAMES[effect]);
     document.querySelectorAll('.lighting-effect').forEach(row => row.classList.toggle('active', row.querySelector('input[type="radio"]').checked));
-    localStorage.setItem(LIGHTING_DEMO_KEY, JSON.stringify({ effect, colors: Object.fromEntries([...document.querySelectorAll('[data-lighting-color]')].map(picker => [picker.dataset.lightingColor, picker.value])) }));
+    const colors = {};
+    document.querySelectorAll('[data-lighting-color]').forEach(picker => { colors[picker.dataset.lightingColor] = picker.value; });
+    storage.setItem(LIGHTING_DEMO_KEY, JSON.stringify({ effect, colors }));
   };
   $('lightingEffects').addEventListener('input', render);
   $('lightingEffects').addEventListener('change', render);
@@ -294,15 +298,15 @@ function download(name, content) {
   setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 function importProfile(raw) {
-  const incoming = raw?.profile || raw;
-  if (incoming?.payload) {
+  const incoming = raw && raw.profile || raw;
+  if (incoming && incoming.payload) {
     const old = incoming.payload;
     const profile = defaultProfile(incoming.name || 'Imported');
-    profile.dpi = old.nv2?.map(item => Number(item.dpi)) || profile.dpi;
-    const oldRate = Number(old.nv1?.rate);
+    profile.dpi = old.nv2 && old.nv2.map(item => Number(item.dpi)) || profile.dpi;
+    const oldRate = Number(old.nv1 && old.nv1.rate);
     profile.rate = REPORT_RATES.includes(8000 / oldRate) ? 8000 / oldRate : profile.rate;
-    profile.stage = Number(old.nv1?.stage) || 0;
-    if (Array.isArray(old.macro?.steps) && Number.isInteger(old.macro?.btnIndex)) {
+    profile.stage = Number(old.nv1 && old.nv1.stage) || 0;
+    if (old.macro && Array.isArray(old.macro.steps) && Number.isInteger(old.macro.btnIndex)) {
       const index = old.macro.btnIndex;
       profile.macros[index] = { steps: old.macro.steps, repetitions: Number(old.macro.loop) || 1 };
       profile.assignments[index] = { kind: 'macro', label: '巨集' };
@@ -310,14 +314,14 @@ function importProfile(raw) {
     return profile;
   }
   if (!validProfile(incoming)) throw new Error('設定檔格式不正確');
-  return { ...incoming, id: crypto.randomUUID(), name: String(incoming.name).slice(0, 30), macros: incoming.macros || {} };
+  return { ...incoming, id: profileId(), name: String(incoming.name).slice(0, 30), macros: incoming.macros || {} };
 }
 function initMacroControls() {
-  $('macroButton').replaceChildren(...MOUSE_BUTTONS.map((name, i) => new Option(`${i + 1} · ${name}`, i)));
+  replaceChildren($('macroButton'), ...MOUSE_BUTTONS.map((name, i) => new Option(`${i + 1} · ${name}`, i)));
   const updateValues = () => {
     const cat = $('macroCategory').value;
     const items = cat === 'ms' ? MOUSE_KEYS : cat === 'media' ? MEDIA_KEYS : KEYBOARD;
-    $('macroValue').replaceChildren(...items.map(item => new Option(item.label, item.val)));
+    replaceChildren($('macroValue'), ...items.map(item => new Option(item.label, item.val)));
   };
   $('macroCategory').addEventListener('change', updateValues); updateValues();
   $('macroAction').addEventListener('change', () => {
@@ -328,8 +332,8 @@ function initMacroControls() {
   });
   $('macroButton').addEventListener('change', () => {
     const macro = active().macros[$('macroButton').value];
-    editingSteps = macro ? structuredClone(macro.steps) : [];
-    $('macroRepeats').value = macro?.repetitions ?? 1;
+    editingSteps = macro ? cloneData(macro.steps) : [];
+    $('macroRepeats').value = macro && macro.repetitions != null ? macro.repetitions : 1;
     renderMacro();
   });
 }
@@ -368,7 +372,7 @@ function bindEvents() {
   $('saveDevice').addEventListener('click', () => {
     clearTimeout(gaugeTimer);
     work('設定寫入', async () => {
-      const profile = structuredClone(active());
+      const profile = cloneData(active());
       await device.writeNv2(profile.dpi);
       await device.writeNv1(profile.rate, profile.stage);
       await writeAllButtons(profile);
@@ -379,7 +383,7 @@ function bindEvents() {
   $('importFile').addEventListener('change', async event => {
     const file = event.target.files[0]; if (!file) return;
     try {
-      const profile = importProfile(JSON.parse(await file.text()));
+      const profile = importProfile(JSON.parse(await readFileText(file)));
       const index = profiles.findIndex(item => item.id === activeId);
       profile.name = `M${index + 1}`;
       profiles[index] = profile; activeId = profile.id;
@@ -409,17 +413,17 @@ function bindEvents() {
     if (!editingSteps.length) throw new Error('請先加入動作');
     const index = Number($('macroButton').value), repetitions = Number($('macroRepeats').value);
     await device.writeMacro(index, editingSteps, repetitions);
-    active().macros[index] = { steps: structuredClone(editingSteps), repetitions };
+    active().macros[index] = { steps: cloneData(editingSteps), repetitions };
     active().assignments[index] = { kind: 'macro', label: '巨集' };
     persist(); renderAssignments();
   }));
   $('exportTrace').addEventListener('click', () => download(`gaming-mouse-hid-${Date.now()}.json`, JSON.stringify(device.trace, null, 2)));
   $('languageSelect').addEventListener('change', () => {
-    localStorage.setItem('hxd-language', $('languageSelect').value);
+    storage.setItem('hxd-language', $('languageSelect').value);
     applyLanguage();
   });
   document.addEventListener('pointermove', event => {
-    const card = event.target.closest?.('.card');
+    const card = event.target.closest && event.target.closest('.card');
     if (!card) return;
     const rect = card.getBoundingClientRect();
     card.style.setProperty('--glow-x', `${event.clientX - rect.left}px`);
@@ -430,7 +434,7 @@ function setTheme(theme) {
   const labels = { dark: '橘黑', light: '橘白', red: '紅色', green: '綠色', blue: '藍色', lavender: '薰衣草紫', banana: '香蕉黃', hoshino: '星野橙花', cyberpunk: '賽博龐克' };
   if (!labels[theme]) theme = 'hoshino';
   document.documentElement.dataset.theme = theme;
-  localStorage.setItem('hxd-theme', theme);
+  storage.setItem('hxd-theme', theme);
   const label = $('themeLabel');
   label.textContent = t(labels[theme]);
   $('settingsTop').setAttribute('aria-label', t('選擇主題'));
@@ -446,7 +450,7 @@ function applyLanguage() {
   document.documentElement.lang = ({ 'zh-TW': 'zh-Hant', 'zh-CN': 'zh-Hans', en: 'en', ja: 'ja', ko: 'ko' })[language];
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-    if (!node.textContent.trim() || node.parentElement?.closest('script,style,#traceView')) continue;
+    if (!node.textContent.trim() || node.parentElement && node.parentElement.closest('script,style,#traceView')) continue;
     if (!textSources.has(node)) textSources.set(node, node.textContent);
     const source = textSources.get(node);
     const trimmed = source.trim();
@@ -470,10 +474,11 @@ bindEvents();
 initLightingDemo();
 device.addEventListener('change', renderConnection);
 device.addEventListener('trace', renderTrace);
-const savedLanguage = localStorage.getItem('hxd-language');
+const savedLanguage = storage.getItem('hxd-language');
 $('languageSelect').value = LANGUAGES.includes(savedLanguage) ? savedLanguage : systemLanguage(navigator.languages || [navigator.language]);
-document.documentElement.dataset.theme = localStorage.getItem('hxd-theme') || 'hoshino';
+document.documentElement.dataset.theme = storage.getItem('hxd-theme') || 'hoshino';
 renderAll();
+document.documentElement.classList.add('home-active');
 
 
 
